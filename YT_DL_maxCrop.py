@@ -37,8 +37,7 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix):
     ffmpeg_cmd = [
         "ffmpeg",
         "-i", video_path,
-        "-filter_complex", f"[0:v]fps=1/5[fps];[fps]scale=w='if(gt(a,4/3),-1,oh*4/3)':h='if(gt(a,4/3),ow*3/4,-1)'[scaled];[scaled]crop=w='if(gt(a,4/3),in_h*4/3,in_w)':h='if(gt(a,4/3),in_w*3/4,in_h)':x=(in_w-out_w)/2:y=(in_h-out_h)/2[cropped]",
-        "-map", "[cropped]",
+        "-vf", f"fps=1/5,{crop_filter}",
         "-q:v", "1",
         f"{output_dir}/{filename_prefix}_%04d.jpg",
     ]
@@ -51,16 +50,22 @@ if __name__ == "__main__":
     output_dir = input("出力ディレクトリを入力してください: ")
     filename_prefix = input("出力ファイル名のプレフィックスを入力してください: ")
 
-    # yt-dlp コマンドを生成
+    # yt-dlp で動画をダウンロードし、ffmpeg で処理
     download_cmd = [
         "yt-dlp",
         "-f", "bv+ba/b",
         "-o", "-",
-        video_url
+        video_url,
     ]
-
-    # ffmpeg コマンドを生成
     ffmpeg_cmd = generate_ffmpeg_command("-", output_dir, filename_prefix)
 
-    # コマンド全体を表示
-    print(" ".join(download_cmd) + " | " + ffmpeg_cmd)
+    # yt-dlp と ffmpeg をパイプで接続して同時に実行
+    download_process = subprocess.Popen(download_cmd, stdout=subprocess.PIPE)
+    ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout, shell=True)
+
+    # プロセスの終了を待つ
+    download_process.stdout.close()  # パイプの終端を閉じる
+    download_process.wait()
+    ffmpeg_process.wait()
+
+    print("処理が完了しました。")
