@@ -1,5 +1,6 @@
 import subprocess
 import re
+from tqdm import tqdm
 
 def generate_ffmpeg_command(video_path, output_dir, filename_prefix):
     """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数
@@ -65,6 +66,13 @@ if __name__ == "__main__":
 
     # プロセスの終了を待つ
     download_process.stdout.close()  # パイプの終端を閉じる
+
+    # プログレスバーを表示
+    with tqdm(total=100, desc="Processing", unit="%", ncols=100) as pbar:
+        while download_process.poll() is None or ffmpeg_process.poll() is None:
+            pbar.update(1)
+            pbar.refresh()
+
     download_process.wait()
     ffmpeg_process.wait()
 
