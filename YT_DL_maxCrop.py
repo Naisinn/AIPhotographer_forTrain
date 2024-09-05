@@ -1,5 +1,4 @@
 import subprocess
-from tqdm import tqdm
 
 def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_ratio):
     """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数
@@ -13,20 +12,19 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_rati
     Returns:
         list: ffmpeg コマンド
     """
-
-    # アスペクト比に応じて crop フィルタのパラメータを決定
     if aspect_ratio == "h":
-        crop_filter = f"crop=w=ih*3/4:h=ih:x=(iw-out_w)/2:y=0"
+        # 横長の動画の場合、左右を削除して中央を3:4で切り抜く
+        crop_filter = "fps=1/5,crop=w=3/4*ih:h=ih:x=(iw-3/4*ih)/2:y=0"
     elif aspect_ratio == "v":
-        crop_filter = f"crop=w=iw:h=iw*4/3:x=0:y=(ih-out_h)/2"
+        # 縦長の動画の場合、上下を削除して中央を3:4で切り抜く
+        crop_filter = "fps=1/5,crop=w=iw:h=4/3*iw:x=0:y=(ih-4/3*iw)/2"
     else:
-        crop_filter = "crop=w=iw:h=ih:x=0:y=0"
+        crop_filter = "fps=1/5,crop=w=iw:h=ih:x=0:y=0"
 
-    # ffmpeg コマンドを生成
     ffmpeg_cmd = [
         "ffmpeg",
         "-i", video_path,
-        "-vf", f"fps=1/5,{crop_filter}",
+        "-vf", crop_filter,
         "-q:v", "1",
         f"{output_dir}/{filename_prefix}_%04d.jpg",
     ]
@@ -60,12 +58,6 @@ if __name__ == "__main__":
 
     # プロセスの終了を待つ
     download_process.stdout.close()  # パイプの終端を閉じる
-
-    # プログレスバーを表示
-    with tqdm(total=100, desc="Processing", unit="%", ncols=100) as pbar:
-        while download_process.poll() is None or ffmpeg_process.poll() is None:
-            pbar.update(1)
-            pbar.refresh()
 
     download_process.wait()
     ffmpeg_process.wait()
