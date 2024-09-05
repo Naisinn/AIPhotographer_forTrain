@@ -11,7 +11,7 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_rati
         aspect_ratio (str): 動画のアスペクト比 ("h" または "v")
 
     Returns:
-        str: ffmpeg コマンド
+        list: ffmpeg コマンド
     """
 
     # アスペクト比に応じて crop フィルタのパラメータを決定
@@ -31,7 +31,7 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_rati
         f"{output_dir}/{filename_prefix}_%04d.jpg",
     ]
 
-    return " ".join(ffmpeg_cmd)
+    return ffmpeg_cmd
 
 # --- メイン処理 ---
 if __name__ == "__main__":
@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     # yt-dlp と ffmpeg をパイプで接続して同時に実行
     download_process = subprocess.Popen(download_cmd, stdout=subprocess.PIPE)
-    ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout, shell=True)
+    ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout)
 
     # プロセスの終了を待つ
     download_process.stdout.close()  # パイプの終端を閉じる
