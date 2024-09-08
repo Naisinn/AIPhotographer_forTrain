@@ -15,9 +15,9 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_rati
 
     # アスペクト比に応じて crop フィルタのパラメータを決定
     if aspect_ratio == "h":
-        crop_filter = f"crop=w=ih*4/3:h=ih:x=(iw-out_w)/2:y=0"
+        crop_filter = f"crop=w=3/4*ih:h=ih:x=(iw-3/4*ih)/2:y=0"
     elif aspect_ratio == "v":
-        crop_filter = f"crop=w=iw:h=iw*3/4:x=0:y=(ih-out_h)/2"
+        crop_filter = f"crop=w=iw:h=4/3*iw:x=0:y=(ih-4/3*iw)/2"
     else:
         crop_filter = "crop=w=iw:h=ih:x=0:y=0"
 
