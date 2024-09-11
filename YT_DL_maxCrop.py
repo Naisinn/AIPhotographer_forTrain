@@ -1,4 +1,5 @@
 import subprocess
+import os
 
 def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_ratio):
     """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数
@@ -53,7 +54,7 @@ def get_multiline_input(prompt):
 # --- メイン処理 ---
 if __name__ == "__main__":
     video_urls = get_multiline_input("動画のURLを改行区切りで入力してください:\n（入力を終了するには、空行を入力してください）")
-    output_dir = input("出力ディレクトリを入力してください: ")
+    output_dir = input("出力ディレクトリを入力してください: ").strip('"')
     filename_prefixes = get_multiline_input("出力ファイル名のプレフィックスを改行区切りで入力してください:\n（入力を終了するには、空行を入力してください）")
     aspect_ratios = get_multiline_input("横:縦が3:4よりも横長ですか？縦長ですか？ (h: 横長, v: 縦長) を改行区切りで入力してください:\n（入力を終了するには、空行を入力してください）")
 
@@ -71,6 +72,14 @@ if __name__ == "__main__":
             print(f"動画 {i+1} のアスペクト比が無効です。'h' または 'v' を入力してください。")
             continue
 
+        # プレフィックス名のフォルダを作成
+        prefix_dir = os.path.join(output_dir, filename_prefix)
+        os.makedirs(prefix_dir, exist_ok=True)
+
+        # train フォルダを作成
+        train_dir = os.path.join(prefix_dir, "train")
+        os.makedirs(train_dir, exist_ok=True)
+
         # yt-dlp で動画をダウンロードし、ffmpeg で処理
         download_cmd = [
             "yt-dlp",
@@ -78,14 +87,14 @@ if __name__ == "__main__":
             "-o", "-",
             video_url,
         ]
-        ffmpeg_cmd = generate_ffmpeg_command("-", output_dir, filename_prefix, aspect_ratio)
+        ffmpeg_cmd = generate_ffmpeg_command("-", train_dir, filename_prefix, aspect_ratio)
 
         # yt-dlp と ffmpeg をパイプで接続して同時に実行
         download_process = subprocess.Popen(download_cmd, stdout=subprocess.PIPE)
-        ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout)  # shell=True を削除
+        ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout)
 
         # プロセスの終了を待つ
-        download_process.stdout.close()  # パイプの終端を閉じる
+        download_process.stdout.close() 
 
         download_process.wait()
         ffmpeg_process.wait()
