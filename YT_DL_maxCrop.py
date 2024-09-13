@@ -1,5 +1,6 @@
 import subprocess
 import os
+import re
 
 def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_ratio):
     """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数
@@ -65,7 +66,7 @@ if __name__ == "__main__":
 
     # 各動画について処理を実行
     for i, video_url in enumerate(video_urls):
-        filename_prefix = filename_prefixes[i]
+        filename_prefix = re.sub(r'[\\/:*?"<>|]', "_", filename_prefixes[i])
         aspect_ratio = aspect_ratios[i].strip().lower()
 
         if aspect_ratio not in ["h", "v"]:
