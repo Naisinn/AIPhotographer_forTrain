@@ -1,21 +1,11 @@
 import subprocess
 import os
 import re
+import concurrent.futures
 
 def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_ratio):
-    """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数
+    """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数"""
 
-    Args:
-        video_path (str): 入力動画のパス
-        output_dir (str): 出力ディレクトリ
-        filename_prefix (str): 出力ファイル名のプレフィックス
-        aspect_ratio (str): 動画のアスペクト比 ("h" または "v")
-
-    Returns:
-        list: ffmpeg コマンド
-    """
-
-    # アスペクト比に応じて crop フィルタのパラメータを決定
     if aspect_ratio == "h":
         crop_filter = f"crop=w=3/4*ih:h=ih:x=(iw-3/4*ih)/2:y=0"
     elif aspect_ratio == "v":
@@ -23,7 +13,6 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_rati
     else:
         crop_filter = "crop=w=iw:h=ih:x=0:y=0"
 
-    # ffmpeg コマンドを生成
     ffmpeg_cmd = [
         "ffmpeg",
         "-i", video_path,
@@ -35,14 +24,7 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_rati
     return ffmpeg_cmd
 
 def get_multiline_input(prompt):
-    """複数行の入力を取得する関数
-
-    Args:
-        prompt (str): 入力時に表示するメッセージ
-
-    Returns:
-        list: 入力された各行を要素とするリスト
-    """
+    """複数行の入力を取得する関数"""
     lines = []
     print(prompt)
     while True:
@@ -51,6 +33,43 @@ def get_multiline_input(prompt):
             break
         lines.append(line)
     return lines
+
+def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio):
+    """動画をダウンロードし、ffmpeg で処理する関数"""
+    filename_prefix = re.sub(r'[\\/:*?"<>|]', "_", filename_prefix)
+    aspect_ratio = aspect_ratio.strip().lower()
+
+    if aspect_ratio not in ["h", "v"]:
+        print(f"動画 {i+1} のアスペクト比が無効です。'h' または 'v' を入力してください。")
+        return
+
+    # プレフィックス名のフォルダを作成
+    prefix_dir = os.path.join(output_dir, filename_prefix)
+    os.makedirs(prefix_dir, exist_ok=True)
+
+    # train フォルダを作成
+    train_dir = os.path.join(prefix_dir, "train")
+    os.makedirs(train_dir, exist_ok=True)
+
+    # yt-dlp で動画をダウンロードし、ffmpeg で処理
+    download_cmd = [
+        "yt-dlp",
+        "-f", "bv+ba/b",
+        "-o", "-",
+        video_url,
+    ]
+    ffmpeg_cmd = generate_ffmpeg_command("-", train_dir, filename_prefix, aspect_ratio)
+
+    # yt-dlp と ffmpeg をパイプで接続して同時に実行
+    download_process = subprocess.Popen(download_cmd, stdout=subprocess.PIPE)
+    ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout)
+
+    # プロセスの終了を待つ
+    download_process.stdout.close()
+    download_process.wait()
+    ffmpeg_process.wait()
+
+    print(f"動画 {i+1} の処理が完了しました。")
 
 # --- メイン処理 ---
 if __name__ == "__main__":
@@ -64,42 +83,17 @@ if __name__ == "__main__":
         print("エラー: 入力値の数が一致しません。")
         exit(1)
 
-    # 各動画について処理を実行
-    for i, video_url in enumerate(video_urls):
-        filename_prefix = re.sub(r'[\\/:*?"<>|]', "_", filename_prefixes[i])
-        aspect_ratio = aspect_ratios[i].strip().lower()
+    # マルチスレッドで各動画の処理を実行
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+        for i, video_url in enumerate(video_urls):
+            futures.append(
+                executor.submit(
+                    process_video, i, video_url, output_dir, filename_prefixes[i], aspect_ratios[i]
+                )
+            )
 
-        if aspect_ratio not in ["h", "v"]:
-            print(f"動画 {i+1} のアスペクト比が無効です。'h' または 'v' を入力してください。")
-            continue
-
-        # プレフィックス名のフォルダを作成
-        prefix_dir = os.path.join(output_dir, filename_prefix)
-        os.makedirs(prefix_dir, exist_ok=True)
-
-        # train フォルダを作成
-        train_dir = os.path.join(prefix_dir, "train")
-        os.makedirs(train_dir, exist_ok=True)
-
-        # yt-dlp で動画をダウンロードし、ffmpeg で処理
-        download_cmd = [
-            "yt-dlp",
-            "-f", "bv+ba/b",
-            "-o", "-",
-            video_url,
-        ]
-        ffmpeg_cmd = generate_ffmpeg_command("-", train_dir, filename_prefix, aspect_ratio)
-
-        # yt-dlp と ffmpeg をパイプで接続して同時に実行
-        download_process = subprocess.Popen(download_cmd, stdout=subprocess.PIPE)
-        ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout)
-
-        # プロセスの終了を待つ
-        download_process.stdout.close() 
-
-        download_process.wait()
-        ffmpeg_process.wait()
-
-        print(f"動画 {i+1} の処理が完了しました。")
+        # 全てのスレッドの終了を待つ
+        concurrent.futures.wait(futures)
 
     print("全ての処理が完了しました。")
