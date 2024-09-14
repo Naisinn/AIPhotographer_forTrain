@@ -47,8 +47,8 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio):
     prefix_dir = os.path.join(output_dir, filename_prefix)
     os.makedirs(prefix_dir, exist_ok=True)
 
-    # train フォルダを作成
-    train_dir = os.path.join(prefix_dir, "train")
+    # train_images フォルダを作成
+    train_dir = os.path.join(prefix_dir, "train_images")
     os.makedirs(train_dir, exist_ok=True)
 
     # yt-dlp で動画をダウンロードし、ffmpeg で処理
