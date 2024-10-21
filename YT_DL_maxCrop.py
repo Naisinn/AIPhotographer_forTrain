@@ -18,7 +18,7 @@ def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_rati
         "-i", video_path,
         "-vf", f"fps=1/5,{crop_filter}",
         "-q:v", "1",
-        f"{output_dir}/{filename_prefix}_%04d.jpg",
+        os.path.join(output_dir, f"{filename_prefix}_%04d.jpg"),
     ]
 
     return ffmpeg_cmd
@@ -51,23 +51,32 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio):
     train_dir = os.path.join(prefix_dir, "train_images")
     os.makedirs(train_dir, exist_ok=True)
 
-    # yt-dlp で動画をダウンロードし、ffmpeg で処理
+    # 一時ファイルのパスを設定
+    temp_video_path = os.path.join(prefix_dir, f"{filename_prefix}.mp4")
+
+    # yt-dlp で動画を一時ファイルにダウンロード（再開可能）
     download_cmd = [
         "yt-dlp",
         "-f", "bv+ba/b",
-        "-o", "-",
+        "-o", temp_video_path,
         video_url,
     ]
-    ffmpeg_cmd = generate_ffmpeg_command("-", train_dir, filename_prefix, aspect_ratio)
 
-    # yt-dlp と ffmpeg をパイプで接続して同時に実行
-    download_process = subprocess.Popen(download_cmd, stdout=subprocess.PIPE)
-    ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=download_process.stdout)
+    # ダウンロードを実行
+    try:
+        subprocess.run(download_cmd, check=True)
+    except subprocess.CalledProcessError:
+        print(f"動画 {i+1} のダウンロード中にエラーが発生しました。")
+        return
 
-    # プロセスの終了を待つ
-    download_process.stdout.close()
-    download_process.wait()
-    ffmpeg_process.wait()
+    # ffmpeg コマンドを生成して実行
+    ffmpeg_cmd = generate_ffmpeg_command(temp_video_path, train_dir, filename_prefix, aspect_ratio)
+
+    try:
+        subprocess.run(ffmpeg_cmd, check=True)
+    except subprocess.CalledProcessError:
+        print(f"動画 {i+1} の処理中にエラーが発生しました。")
+        return
 
     print(f"動画 {i+1} の処理が完了しました。")
 
