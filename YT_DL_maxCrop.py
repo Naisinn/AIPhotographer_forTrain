@@ -1,14 +1,13 @@
-import subprocess
 import os
+import subprocess
 import re
 import concurrent.futures
 import tempfile
-from tqdm import tqdm  # プログレスバー用ライブラリのインポート
+from tqdm import tqdm
 import threading
 
 def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_ratio):
     """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数"""
-
     if aspect_ratio == "h":
         crop_filter = "crop=w=3/4*ih:h=ih:x=(iw-3/4*ih)/2:y=0"
     elif aspect_ratio == "v":
@@ -64,7 +63,7 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio, temp_
         print(f"ディレクトリ '{train_dir}' を作成または確認しました。")
 
         # 一時ファイルのパスを設定（ローカルディスク上の temp_dir を使用）
-        temp_video_path = os.path.join(temp_dir, f"{filename_prefix_clean}.mp4")
+        temp_video_path = os.path.join(temp_dir, f"{filename_prefix_clean}")
 
         # プログレスバーの設定
         download_pbar = tqdm(total=100, desc=f"動画 {i+1} ダウンロード", position=position, leave=False, unit="%", ncols=80)
@@ -87,30 +86,14 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio, temp_
         download_cmd = [
             "yt-dlp",
             "-f", "bestvideo+bestaudio/best",  # 解像度制限を解除
-            "--progress-hooks", "hook_script",  # プログレスフックを設定
+            "--progress",  # プログレス表示を有効に
             "-o", temp_video_path,
             video_url,
         ]
 
-        # 一時的な yt-dlp スクリプトを作成
-        hook_script_path = os.path.join(temp_dir, f"hook_{i}.py")
-        with open(hook_script_path, 'w', encoding='utf-8') as hook_file:
-            hook_file.write("""
-import sys
-import json
-
-def hook(d):
-    import json
-    print(json.dumps(d))
-    sys.stdout.flush()
-
-hook(json.loads(sys.stdin.read()))
-""")
-
-        # yt-dlp コマンドを実行し、プログレスフックを通じてプログレスバーを更新
         print(f"動画 {i+1} のダウンロードコマンドを実行します。")
         process = subprocess.Popen(
-            ["yt-dlp"] + ["--progress-hooks", hook_script_path] + download_cmd[1:],
+            download_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -119,11 +102,13 @@ hook(json.loads(sys.stdin.read()))
 
         # プログレスフックからの出力を処理
         for line in process.stderr:
-            try:
-                d = json.loads(line.strip())
-                yt_dlp_hook(d)
-            except json.JSONDecodeError:
-                continue
+            # yt-dlp のプログレス出力を解析してプログレスバーを更新
+            # 例: [download]  50.0% of 100.00MiB at 10.00MiB/s ETA 00:05
+            match = re.search(r'\[download\]\s+(\d+\.\d+)% of ([\d\.]+)([A-Za-z]+) at ([\d\.]+)([A-Za-z/]+) ETA ([\d:]+)', line)
+            if match:
+                percentage = float(match.group(1))
+                download_pbar.n = percentage
+                download_pbar.refresh()
 
         process.wait()
 
@@ -132,12 +117,25 @@ hook(json.loads(sys.stdin.read()))
             print(process.stderr.read())
             return False
 
+        download_pbar.n = 100
+        download_pbar.refresh()
+        download_pbar.close()
+
         print(f"動画 {i+1} のダウンロードが完了しました。")
 
         # ダウンロードが成功しているか再度チェック
-        if os.path.exists(temp_video_path) and os.path.getsize(temp_video_path) > 0:
+        # 実際のファイル拡張子を検出
+        downloaded_files = [f for f in os.listdir(temp_dir) if f.startswith(filename_prefix_clean)]
+        if not downloaded_files:
+            print(f"動画 {i+1} のダウンロードが不完全です。ffmpeg の処理をスキップします。")
+            return False
+
+        # 最初の一致するファイルを使用
+        actual_video_path = os.path.join(temp_dir, downloaded_files[0])
+
+        if os.path.exists(actual_video_path) and os.path.getsize(actual_video_path) > 0:
             # ダウンロードファイルのサイズをログに出力
-            file_size_mb = os.path.getsize(temp_video_path) / (1024 * 1024)
+            file_size_mb = os.path.getsize(actual_video_path) / (1024 * 1024)
             print(f"動画 {i+1} のダウンロードファイルサイズ: {file_size_mb:.2f} MB")
 
             # ffmpeg プロセスのプログレスバー設定
@@ -157,16 +155,15 @@ hook(json.loads(sys.stdin.read()))
                             minutes = float(match.group(2))
                             seconds = float(match.group(3))
                             elapsed = hours * 3600 + minutes * 60 + seconds
-                            # ここでは簡単に推定
-                            # 正確な進行状況を得るには動画の全体時間が必要
-                            # この例では仮に動画の長さを2分と仮定
-                            total_time = 120  # 秒
+                            # ffmpeg の総時間を取得する方法が必要
+                            # 現在は仮の値を使用
+                            total_time = 120  # 秒（適切に取得する必要があります）
                             percentage = min(elapsed / total_time * 100, 100)
                             ffmpeg_pbar.n = percentage
                             ffmpeg_pbar.refresh()
 
             # ffmpeg コマンドを生成して実行
-            ffmpeg_cmd = generate_ffmpeg_command(temp_video_path, train_dir, filename_prefix_clean, aspect_ratio)
+            ffmpeg_cmd = generate_ffmpeg_command(actual_video_path, train_dir, filename_prefix_clean, aspect_ratio)
             print(f"動画 {i+1} の ffmpeg 処理を実行します。")
             ffmpeg_process = subprocess.Popen(
                 ffmpeg_cmd,
@@ -196,8 +193,8 @@ hook(json.loads(sys.stdin.read()))
 
             # 一時ファイルを削除
             try:
-                os.remove(temp_video_path)
-                print(f"一時ファイル '{temp_video_path}' を削除しました。")
+                os.remove(actual_video_path)
+                print(f"一時ファイル '{actual_video_path}' を削除しました。")
             except Exception as e:
                 print(f"一時ファイルの削除に失敗しました: {e}")
 
