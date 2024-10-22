@@ -4,7 +4,6 @@ import yt_dlp
 import subprocess
 import concurrent.futures
 from tqdm import tqdm
-import threading
 
 def sanitize_filename(name):
     """ファイル名から特殊文字を除去する関数"""
@@ -28,9 +27,8 @@ def download_video(url, output_path, progress_bar):
         'outtmpl': output_path,
         'merge_output_format': 'mp4',  # 出力形式を MP4 に統一
         'postprocessors': [{
-            'key': 'FFmpegMerger',
-            'preferredcodec': 'mp4',
-            'preferredquality': '192',
+            'key': 'FFmpegVideoConvertor',
+            'preferedformat': 'mp4',  # 'preferredformat' のスペルに注意
         }],
         'progress_hooks': [progress_hook],
         'noprogress': True,  # 自動プログレス出力を無効化
@@ -138,6 +136,7 @@ def process_single_video(i, video_url, output_dir, filename_prefix, aspect_ratio
             # 動画の総時間を取得
             video_duration = get_video_duration(temp_video_path)
             if video_duration is None:
+                # 一時ファイルが存在しない場合、動画がダウンロードされていないと判断
                 video_duration = 120  # 仮の値を設定（必要に応じて調整）
             total_expected_frames = int(video_duration / 5)  # fps=1/5なので、5秒ごとに1フレーム
 
