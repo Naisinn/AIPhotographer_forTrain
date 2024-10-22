@@ -61,7 +61,7 @@ def get_video_duration(input_video):
     else:
         return None
 
-def process_video_ffmpeg(input_video, output_dir, filename_prefix, aspect_ratio, progress_bar):
+def process_video_ffmpeg(input_video, output_dir, filename_prefix, aspect_ratio, progress_bar, start_time=0, start_number=1):
     """ffmpeg で動画を処理する関数"""
     try:
         if aspect_ratio == "h":
@@ -74,9 +74,11 @@ def process_video_ffmpeg(input_video, output_dir, filename_prefix, aspect_ratio,
         output_pattern = os.path.join(output_dir, f"{filename_prefix}_%04d.jpg")
         ffmpeg_cmd = [
             "ffmpeg",
+            "-ss", str(start_time),  # 開始時間を指定
             "-i", input_video,
             "-vf", f"fps=1/5,{crop_filter}",
             "-q:v", "1",
+            "-start_number", str(start_number),  # 開始フレーム番号を指定
             output_pattern,
         ]
 
@@ -126,25 +128,50 @@ def process_single_video(i, video_url, output_dir, filename_prefix, aspect_ratio
         train_dir = os.path.join(prefix_dir, "train_images")
         os.makedirs(train_dir, exist_ok=True)
 
-        # 出力ディレクトリに既に画像が存在する場合はスキップ
-        if any(fname.endswith('.jpg') for fname in os.listdir(train_dir)):
-            print(f"動画 {i} の処理は既に完了しています。スキップします。")
-            return True
+        # 既に処理が完了している場合はスキップ
+        existing_frames = sorted([fname for fname in os.listdir(train_dir) if fname.endswith('.jpg')])
+        total_expected_frames = None
 
-        # ダウンロードプログレスバー
-        download_pbar = tqdm(total=100, desc=f"動画 {i} ダウンロード", position=position, leave=False, unit="%")
-        download_video(video_url, temp_video_path, download_pbar)
-        download_pbar.close()
+        if existing_frames:
+            # 既に生成されたフレーム数をカウント
+            existing_frame_count = len(existing_frames)
+            # 動画の総時間を取得
+            video_duration = get_video_duration(temp_video_path)
+            if video_duration is None:
+                video_duration = 120  # 仮の値を設定（必要に応じて調整）
+            total_expected_frames = int(video_duration / 5)  # fps=1/5なので、5秒ごとに1フレーム
 
-        # ダウンロードが成功したか確認
+            if existing_frame_count >= total_expected_frames:
+                print(f"動画 {i} の処理は既に完了しています。スキップします。")
+                return True
+
+            # 次に生成すべきフレームの開始番号と開始時間を計算
+            start_number = existing_frame_count + 1
+            start_time = existing_frame_count * 5  # 5秒ごとに1フレーム
+
+            print(f"動画 {i} の処理を再開します。開始フレーム: {start_number}, 開始時間: {start_time}秒")
+        else:
+            start_number = 1
+            start_time = 0
+
+        # ダウンロードがまだ完了していない場合のみダウンロード
         if not (os.path.exists(temp_video_path) and os.path.getsize(temp_video_path) > 0):
-            print(f"動画 {i} のダウンロードが不完全です。ffmpeg の処理をスキップします。")
-            return False
+            # ダウンロードプログレスバー
+            download_pbar = tqdm(total=100, desc=f"動画 {i} ダウンロード", position=position, leave=False, unit="%")
+            download_video(video_url, temp_video_path, download_pbar)
+            download_pbar.close()
+
+            # ダウンロードが成功したか確認
+            if not (os.path.exists(temp_video_path) and os.path.getsize(temp_video_path) > 0):
+                print(f"動画 {i} のダウンロードが不完全です。ffmpeg の処理をスキップします。")
+                return False
+        else:
+            print(f"動画 {i} は既にダウンロードされています。")
 
         # ffmpeg プロセスプログレスバー
         ffmpeg_pbar = tqdm(total=100, desc=f"動画 {i} 処理", position=position + 1, leave=False, unit="%")
         try:
-            process_video_ffmpeg(temp_video_path, train_dir, filename_prefix_clean, aspect_ratio, ffmpeg_pbar)
+            process_video_ffmpeg(temp_video_path, train_dir, filename_prefix_clean, aspect_ratio, ffmpeg_pbar, start_time, start_number)
         except subprocess.CalledProcessError as e:
             print(f"動画 {i} の ffmpeg 処理中にエラーが発生しました。")
             print(e.stderr)
@@ -209,7 +236,7 @@ def main():
         # 並列実行のために各動画に一意のプログレスバー位置を割り当て
         # `tqdm` の position パラメータは、同時に表示されるバーの位置を指定します。
         # 動画数が多い場合、スクロールが必要になるため注意が必要です。
-        max_workers = 2  # 一時ファイルの数を制限するため、並列実行数を小さく設定
+        max_workers = 4  # 要求に応じて設定
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, (video_url, filename_prefix, aspect_ratio) in enumerate(zip(video_urls, filename_prefixes, aspect_ratios)):
