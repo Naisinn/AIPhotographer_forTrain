@@ -27,8 +27,15 @@ def download_video(url, output_path, progress_bar):
         'format': 'bestvideo+bestaudio/best',
         'outtmpl': output_path,
         'merge_output_format': 'mp4',  # 出力形式を MP4 に統一
+        'postprocessors': [{
+            'key': 'FFmpegMerger',
+            'preferredcodec': 'mp4',
+            'preferredquality': '192',
+        }],
         'progress_hooks': [progress_hook],
         'noprogress': True,  # 自動プログレス出力を無効化
+        'quiet': True,        # yt_dlp の標準出力を抑制
+        'no_warnings': True,  # 警告を抑制
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -116,10 +123,13 @@ def process_single_video(i, video_url, output_dir, filename_prefix, aspect_ratio
     try:
         filename_prefix_clean = sanitize_filename(filename_prefix)
         prefix_dir = os.path.join(output_dir, filename_prefix_clean)
-        os.makedirs(prefix_dir, exist_ok=True)
-
         train_dir = os.path.join(prefix_dir, "train_images")
         os.makedirs(train_dir, exist_ok=True)
+
+        # 出力ディレクトリに既に画像が存在する場合はスキップ
+        if any(fname.endswith('.jpg') for fname in os.listdir(train_dir)):
+            print(f"動画 {i} の処理は既に完了しています。スキップします。")
+            return True
 
         # ダウンロードプログレスバー
         download_pbar = tqdm(total=100, desc=f"動画 {i} ダウンロード", position=position, leave=False, unit="%")
@@ -199,7 +209,8 @@ def main():
         # 並列実行のために各動画に一意のプログレスバー位置を割り当て
         # `tqdm` の position パラメータは、同時に表示されるバーの位置を指定します。
         # 動画数が多い場合、スクロールが必要になるため注意が必要です。
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:  # max_workers を 2 に設定
+        max_workers = 2  # 一時ファイルの数を制限するため、並列実行数を小さく設定
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, (video_url, filename_prefix, aspect_ratio) in enumerate(zip(video_urls, filename_prefixes, aspect_ratios)):
                 futures.append(
