@@ -3,7 +3,7 @@ import os
 import re
 import concurrent.futures
 import tempfile
-import shutil
+from tqdm import tqdm  # プログレスバー用ライブラリのインポート
 
 def generate_ffmpeg_command(video_path, output_dir, filename_prefix, aspect_ratio):
     """動画のアスペクト比に応じて ffmpeg コマンドを生成する関数"""
@@ -48,7 +48,7 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio, temp_
 
     if aspect_ratio not in ["h", "v"]:
         print(f"動画 {i+1} のアスペクト比が無効です。'h' または 'v' を入力してください。")
-        return
+        return False  # 処理が失敗したことを示す
 
     # プレフィックス名のフォルダを作成
     prefix_dir = os.path.join(output_dir, filename_prefix)
@@ -78,7 +78,7 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio, temp_
     except subprocess.CalledProcessError as e:
         print(f"動画 {i+1} のダウンロード中にエラーが発生しました。")
         print(e.stderr)
-        return
+        return False  # 処理が失敗したことを示す
 
     # ダウンロードが成功しているか再度チェック
     if os.path.exists(temp_video_path) and os.path.getsize(temp_video_path) > 0:
@@ -92,7 +92,7 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio, temp_
         except subprocess.CalledProcessError as e:
             print(f"動画 {i+1} の ffmpeg 処理中にエラーが発生しました。")
             print(e.stderr)
-            return
+            return False  # 処理が失敗したことを示す
         finally:
             # 一時ファイルを削除
             try:
@@ -102,6 +102,9 @@ def process_video(i, video_url, output_dir, filename_prefix, aspect_ratio, temp_
                 print(f"一時ファイルの削除に失敗しました: {e}")
     else:
         print(f"動画 {i+1} のダウンロードが不完全です。ffmpeg の処理をスキップします。")
+        return False  # 処理が失敗したことを示す
+
+    return True  # 処理が成功したことを示す
 
 # --- メイン処理 ---
 if __name__ == "__main__":
@@ -128,7 +131,7 @@ if __name__ == "__main__":
         print(f"一時ファイルの保存先: {temp_dir}")
 
         # マルチスレッドで各動画の処理を実行（並列実行数を制限しない）
-        with concurrent.futures.ThreadPoolExecutor() as executor:  # デフォルトで適切な数に設定されます
+        with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = []
             for i, video_url in enumerate(video_urls):
                 futures.append(
@@ -137,8 +140,15 @@ if __name__ == "__main__":
                     )
                 )
 
-            # 全てのスレッドの終了を待つ
-            concurrent.futures.wait(futures)
+            # tqdm を使用してプログレスバーを表示
+            with tqdm(total=len(futures), desc="全動画の処理", unit="動画") as pbar:
+                for future in concurrent.futures.as_completed(futures):
+                    success = future.result()
+                    if success:
+                        pbar.set_postfix({"状態": "完了"})
+                    else:
+                        pbar.set_postfix({"状態": "失敗"})
+                    pbar.update(1)
 
         print("全ての処理が完了しました。")
     except Exception as e:
